@@ -1,4 +1,4 @@
-# dsh-media-viewer · 右侧栏媒体预览
+# @vibedev-si/dsh-media-viewer · 右侧栏媒体预览
 
 > 在右侧栏**直接预览视频、音频和 HTML**，并提供**文件夹媒体画廊**。
 > Inline video / audio / HTML preview and a folder media gallery for the DSH right sidebar.
@@ -20,13 +20,15 @@
 
 **前置依赖：[`dsh-better-sidebar`](https://www.npmjs.com/package/dsh-better-sidebar)**（≥ 0.24.0）。它接管了右侧栏的文件打开，本插件通过它的 `registerFileViewer` / `registerTab` 接入。没装它，本插件不会生效。
 
-在 VibeDev / DSH 的插件管理里按包名 `dsh-media-viewer` 安装即可，或用命令行：
+在 VibeDev / DSH 的插件管理里按包名 `@vibedev-si/dsh-media-viewer` 安装即可，或用命令行：
 
 ```sh
-dsh plugin --profile <你的 profile 名> add dsh-media-viewer
+dsh plugin --profile <你的 profile 名> add @vibedev-si/dsh-media-viewer
 ```
 
 安装后**刷新页面**。
+
+> **从旧包名迁移**：本插件原先以无作用域的 `dsh-media-viewer` 发布（0.1.0），现已迁到官方作用域 `@vibedev-si/dsh-media-viewer`，旧包名已标记弃用。已装旧包的用户请卸载后改装新包名；功能与代码完全相同。
 
 ## 为什么需要它
 
@@ -64,14 +66,14 @@ client 是无需构建的纯 JS（`client.js`），host 是 `index.js`，没有�
 
 ## English
 
-**dsh-media-viewer** adds inline previews to the [`dsh-better-sidebar`](https://www.npmjs.com/package/dsh-better-sidebar) right column, which requires it (≥ 0.24.0):
+**@vibedev-si/dsh-media-viewer** adds inline previews to the [`dsh-better-sidebar`](https://www.npmjs.com/package/dsh-better-sidebar) right column, which requires it (≥ 0.24.0):
 
 - **Video** — mp4 / webm / mov / mkv…, seekable, playback speed, loop, no file-size cap (HTTP Range streaming).
 - **Audio** — mp3 / wav / m4a / flac…, live spectrum, playback speed, loop.
 - **HTML** — scripts allowed by default; relative CSS / JS / images / video / `fetch()` all load; preview ⇄ source, phone / tablet / desktop widths, script toggle. Runs in an opaque-origin sandboxed iframe, so a previewed page cannot reach the GUI.
 - **Media gallery** — thumbnail grid for a folder with type filters, search, sort, optional recursion, and a lightbox with ← / → navigation.
 
-Why it exists: the built-in `/sidebar/file` and `/sidebar/html` routes cap files at 20 MB, read them fully into memory, have no Range support, and their fence rejects the `cross-site` sub-resource requests a sandboxed iframe makes. This plugin ships its own `/mp/*` routes instead. Install it by package name from your DSH plugin manager, or `dsh plugin --profile <name> add dsh-media-viewer`, then reload the page.
+Why it exists: the built-in `/sidebar/file` and `/sidebar/html` routes cap files at 20 MB, read them fully into memory, have no Range support, and their fence rejects the `cross-site` sub-resource requests a sandboxed iframe makes. This plugin ships its own `/mp/*` routes instead. Install it by package name from your DSH plugin manager, or `dsh plugin --profile <name> add @vibedev-si/dsh-media-viewer`, then reload the page.
 
 ## License
 

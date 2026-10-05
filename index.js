@@ -34,7 +34,7 @@ import { createReadStream } from 'node:fs'
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { basename, extname, resolve } from 'node:path'
 
-export const name = 'dsh-media-viewer'
+export const name = '@vibedev-si/dsh-media-viewer'
 
 /** Services required before mounting. */
 export const inject = ['webServer', 'sessions', 'webRuntime']

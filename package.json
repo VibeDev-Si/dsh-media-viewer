@@ -1,5 +1,5 @@
 {
-  "name": "dsh-media-viewer",
+  "name": "@vibedev-si/dsh-media-viewer",
   "version": "0.1.0",
   "description": "右侧栏媒体预览：直接预览视频、音频和 HTML（大文件可拖进度条，HTML 默认允许脚本），并提供文件夹媒体画廊，需配合 dsh-better-sidebar · Inline video, audio and HTML preview plus a folder media gallery in the dsh-better-sidebar right column — range-streamed large files, sandboxed HTML with working relative assets",
   "type": "module",
@@ -37,13 +37,13 @@
   ],
   "author": "CrisLIUning",
   "license": "MIT",
-  "homepage": "https://github.com/CrisLIUning/dsh-media-viewer#readme",
+  "homepage": "https://github.com/VibeDev-Si/dsh-media-viewer#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CrisLIUning/dsh-media-viewer.git"
+    "url": "git+https://github.com/VibeDev-Si/dsh-media-viewer.git"
   },
   "bugs": {
-    "url": "https://github.com/CrisLIUning/dsh-media-viewer/issues"
+    "url": "https://github.com/VibeDev-Si/dsh-media-viewer/issues"
   },
   "engines": {
     "node": ">=20"

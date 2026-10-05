@@ -1,7 +1,7 @@
-# dsh-media-viewer bundle patch: one `insert` row mounting the plugin.
+# @vibedev-si/dsh-media-viewer bundle patch: one `insert` row mounting the plugin.
 # The entry `name` must equal the package name so the client-modules scan
 # resolves the package's ./client bundle and serves it at
-# /plugins/dsh-media-viewer/client.js.
+# /plugins/@vibedev-si/dsh-media-viewer/client.js.
 - insert:
     - id: media-viewer
-      name: 'dsh-media-viewer'
+      name: '@vibedev-si/dsh-media-viewer'

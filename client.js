@@ -10,7 +10,7 @@
  * from the shell's module table; everything else is inlined.
  */
 window.__ModuleLoader__.load({
-  id: "dsh-media-viewer",
+  id: "@vibedev-si/dsh-media-viewer",
   factory: (require) => {
     var module = { exports: {} };
     "use strict";
