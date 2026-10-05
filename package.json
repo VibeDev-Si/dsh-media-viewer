@@ -1,0 +1,72 @@
+{
+  "name": "dsh-media-viewer",
+  "version": "0.1.0",
+  "description": "右侧栏媒体预览：直接预览视频、音频和 HTML（大文件可拖进度条，HTML 默认允许脚本），并提供文件夹媒体画廊，需配合 dsh-better-sidebar · Inline video, audio and HTML preview plus a folder media gallery in the dsh-better-sidebar right column — range-streamed large files, sandboxed HTML with working relative assets",
+  "type": "module",
+  "main": "index.js",
+  "icon": "./icon.svg",
+  "files": [
+    "index.js",
+    "client.js",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": {
+      "default": "./client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "vibedev",
+    "dsh-better-sidebar",
+    "better-sidebar",
+    "video",
+    "audio",
+    "html",
+    "preview",
+    "gallery",
+    "file-viewer"
+  ],
+  "author": "CrisLIUning",
+  "license": "MIT",
+  "homepage": "https://github.com/CrisLIUning/dsh-media-viewer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CrisLIUning/dsh-media-viewer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CrisLIUning/dsh-media-viewer/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node test/route.test.mjs"
+  },
+  "peerDependencies": {
+    "dsh-better-sidebar": ">=0.24.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  }
+}
