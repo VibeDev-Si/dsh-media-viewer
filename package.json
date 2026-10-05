@@ -1,6 +1,6 @@
 {
   "name": "@vibedev-si/dsh-media-viewer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "右侧栏媒体预览：直接预览视频、音频和 HTML（大文件可拖进度条，HTML 默认允许脚本），并提供文件夹媒体画廊，需配合 dsh-better-sidebar · Inline video, audio and HTML preview plus a folder media gallery in the dsh-better-sidebar right column — range-streamed large files, sandboxed HTML with working relative assets",
   "type": "module",
   "main": "index.js",
@@ -53,7 +53,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "node test/route.test.mjs"
+    "test": "node test/route.test.mjs && node test/tokens.test.mjs"
   },
   "peerDependencies": {
     "dsh-better-sidebar": ">=0.24.0"

@@ -81,13 +81,20 @@ window.__ModuleLoader__.load({
 
     // ── styling helpers ─────────────────────────────────────────────────────
 
+    // Colours: ONLY variables the host really defines (--dsw-alias-bg-base, -bg-layer-1/2, -bg-overlay, -border-l1/l2,
+    // -brand-primary, -label-primary/secondary, -state-*). An earlier version used three names it had guessed
+    // (a "bg-primary", a "surface-primary" and a "link-normal"): the host has none of them, so the fallback (#fff)
+    // was always used and the gallery lightbox came out white, with light text on it, in the dark theme.
+    // test/tokens.test.mjs now rejects any --dsw-* name that is not on the real list.
     var C = {
-      muted: "var(--dsw-alias-label-secondary, #8b90a0)",
-      link: "var(--dsw-alias-link-normal, #4c8dff)",
+      bg: "var(--dsw-alias-bg-base, #fff)",
+      fg: "var(--dsw-alias-label-primary, #1b1d24)",
+      muted: "var(--dsw-alias-label-secondary, #6c7080)",
+      link: "var(--dsw-alias-brand-primary, #2f6fe0)",
       line: "rgba(127,127,127,.28)",
       soft: "rgba(127,127,127,.10)",
       softer: "rgba(127,127,127,.06)",
-      accent: "#7c5cff",
+      accent: "#7254f5", // a white label on it is 4.88:1 (the old #7c5cff gave 4.35:1)
     };
 
     var btnBase = {
@@ -469,7 +476,7 @@ window.__ModuleLoader__.load({
 
       var nav = { position: "absolute", top: "50%", transform: "translateY(-50%)", width: "30px", height: "56px", border: "none", borderRadius: "6px", background: "rgba(127,127,127,.35)", color: "inherit", cursor: "pointer", fontSize: "18px", zIndex: 2 };
       return h("div", {
-        style: { position: "absolute", inset: 0, zIndex: 20, display: "flex", flexDirection: "column", background: "var(--dsw-alias-bg-primary, var(--dsw-alias-surface-primary, #fff))" },
+        style: { position: "absolute", inset: 0, zIndex: 20, display: "flex", flexDirection: "column", background: C.bg, color: C.fg },
       }, [
         h("div", { key: "top", style: { display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", borderBottom: "1px solid " + C.line, fontSize: "12px", flex: "none" } }, [
           h(Btn, { key: "x", title: "返回画廊 (Esc)", onClick: p.onClose }, "← 返回"),
