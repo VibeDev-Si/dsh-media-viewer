@@ -158,6 +158,12 @@ window.__ModuleLoader__.load({
         h("rect", { key: "d", x: 9, y: 9, width: 5, height: 5, rx: 1, stroke: "currentColor", strokeWidth: 1.5 }),
       ]);
     }
+    function IconTools(size) {
+      return svg(size, [
+        h("rect", { key: "a", x: 2, y: 2, width: 12, height: 12, rx: 3, stroke: "currentColor", strokeWidth: 1.5 }),
+        pathEl("M8 5.4v5.2M5.4 8h5.2", { key: "b" }),
+      ]);
+    }
     function kindIcon(kind, size) {
       return kind === "video" ? IconVideo(size) : kind === "audio" ? IconAudio(size) : kind === "html" ? IconHtml(size) : IconImage(size);
     }
@@ -180,13 +186,16 @@ window.__ModuleLoader__.load({
       } catch (e) { console.error("[dsh-media-viewer] open gallery failed", e); }
     }
 
-    function CommonActions(props, abs, url) {
+    function CommonActions(props, abs, url, toolsOpen, onTools) {
       var out = [
         h("a", { key: "new", href: url, target: "_blank", rel: "noopener", style: btn(), title: "在新窗口打开" }, "新窗口"),
         h("a", { key: "dl", href: fileUrl(props.scope, abs, "download=1"), download: baseName(abs), style: btn(), title: "下载原文件" }, "下载"),
       ];
       if (!props.hideGallery) {
         out.push(h(Btn, { key: "gal", title: "浏览所在文件夹的全部媒体", onClick: function () { openGallery(props, abs); } }, [IconGrid(12), "画廊"]));
+      }
+      if (typeof onTools === "function") {
+        out.push(h(Btn, { key: "tools", active: toolsOpen === true, title: "相关组件与插件中心", onClick: onTools }, [IconTools(12), "组件"]));
       }
       return out;
     }
@@ -200,9 +209,305 @@ window.__ModuleLoader__.load({
     }
 
     function Shell(p) {
+      var kids = p.children ? (Array.isArray(p.children) ? p.children.slice() : [p.children]) : [];
+      if (p.tools) kids.push(p.tools);
       return h("div", {
         style: { display: "flex", flexDirection: "column", gap: "8px", padding: "10px", minWidth: 0, minHeight: 0, height: "100%", boxSizing: "border-box" },
-      }, p.children);
+      }, kids);
+    }
+
+    // ── companion components (the plugin centre is the way to the rest) ─────
+    //
+    // What the Host actually has comes from its plugin inventory — a bundle the profile
+    // installed, or one the application ships itself. Every service below is read
+    // optionally and strictly, so a Host without a plugin manager, a panel layout, or the
+    // plugin navigation contract keeps this viewer working and simply shows the manual
+    // spec. Nothing here installs anything: the centre and the Plugins page own every
+    // install, approval and progress step, and nothing is read before a surface is opened.
+
+    /** The VibeDev components by package name; the centre is the way to all of them. */
+    var SUITE = { account: "@vibedev-si/dsh-vibedev", center: "@vibedev-si/dsh-ecosystem", film: "dsh-film" };
+    /** The main panel the VibeDev plugin centre registers its page under. */
+    var CENTER_PANEL = "vibedev-center";
+    /** The package a person can add on the Plugins page when nothing can open the centre. */
+    var CENTER_SPEC = SUITE.center;
+    /**
+     * The components this viewer's own work leans on, in the order the card lists them.
+     * A bundle already installed or shipped by the app is never named (see `bundlePresent`),
+     * and the viewer never recommends itself.
+     */
+    var COMPANIONS = [
+      { package: SUITE.account, line: "VibeDev 账号：用余额生成图片、视频和音频，模型请求走 VibeDev 网关。" },
+      { package: SUITE.film, line: "影视工作台：剧本、分镜画布和导演台，把这个文件夹里的媒体排成片子。" },
+    ];
+    /** The card's own copy, in the one language this bundle's UI uses. */
+    var SUITE_COPY = {
+      missingTitle: "相关组件",
+      missingIntro: "这些组件和右侧栏预览配合使用，装好后出现在它们各自的页面里。",
+      toolsTitle: "插件中心",
+      toolsIntro: "插件中心里可以浏览其余组件。",
+      keep: "这里只做提示：不会自动安装，也不会改动已装的东西；安装与授权都在插件中心里完成。",
+      open: "打开插件中心",
+      manual: "打不开插件中心时，可在「插件」页按包名安装：",
+      copy: "复制包名",
+      copied: "已复制",
+      tools: "组件",
+    };
+
+    /** A value read as a record, without trusting its declared type. */
+    function asRecord(v) { return typeof v === "object" && v !== null ? v : undefined; }
+
+    /** One property of a service, read without letting a hostile getter throw into the viewer. */
+    function safeGet(target, name) {
+      var record = asRecord(target);
+      if (record === undefined) return undefined;
+      try { return record[name]; } catch (e) { return undefined; }
+    }
+
+    /** One optional service, read strictly: absent (never throwing) on a Host that does not have it. */
+    function serviceOf(ctx, name) {
+      if (!ctx || typeof ctx.get !== "function") return undefined;
+      try { return ctx.get(name); } catch (e) { return undefined; }
+    }
+
+    /** The optional services the card uses, from the strict store first and the property proxy second. */
+    function suiteServices(ctx) {
+      var remote = asRecord(serviceOf(ctx, "remote") || safeGet(ctx, "remote"));
+      return {
+        manager: asRecord(serviceOf(ctx, "remote.pluginManager") || safeGet(remote, "pluginManager")),
+        slots: asRecord(serviceOf(ctx, "slots") || safeGet(ctx, "slots")),
+        layout: asRecord(serviceOf(ctx, "layout") || safeGet(ctx, "layout")),
+        navigation: asRecord(serviceOf(ctx, "pluginNavigation") || safeGet(ctx, "pluginNavigation")),
+        remote: remote,
+      };
+    }
+
+    /** Whether the Host already has a bundle: the profile installed it, or the application provides it itself. */
+    function bundlePresent(bundle) {
+      return bundle.installed === true || (bundle.removable === false && !bundle.source);
+    }
+
+    /**
+     * The present package names of one inventory answer, or undefined when the answer is not a
+     * readable list. An answer this cannot read is never read as "nothing is present": a refusal
+     * envelope, another shape, or a missing value means the caller knows nothing, not that every
+     * component is missing.
+     */
+    function presentFrom(answer) {
+      var record = asRecord(answer);
+      if (record === undefined || record.ok === false) return undefined;
+      if (!Array.isArray(record.value)) return undefined;
+      var names = [];
+      for (var i = 0; i < record.value.length; i++) {
+        var bundle = asRecord(record.value[i]);
+        if (!bundle || !bundlePresent(bundle)) continue;
+        if (typeof bundle.name === "string" && bundle.name !== "" && names.indexOf(bundle.name) < 0) names.push(bundle.name);
+      }
+      return names;
+    }
+
+    /**
+     * Read the Host's plugin inventory once. A manager that cannot answer — absent, throwing,
+     * rejecting, or answering an envelope that is not a readable list — is not an inventory of
+     * nothing: `ok: false` makes the card offer the centre and claim no component is missing.
+     */
+    function readPresence(ctx) {
+      var manager = suiteServices(ctx).manager;
+      var list = safeGet(manager, "listBundles");
+      if (typeof list !== "function") return Promise.resolve({ ok: false, present: [] });
+      try {
+        return Promise.resolve(list.call(manager)).then(
+          function (answer) {
+            var present = presentFrom(answer);
+            return present === undefined ? { ok: false, present: [] } : { ok: true, present: present };
+          },
+          function () { return { ok: false, present: [] }; });
+      } catch (e) {
+        return Promise.resolve({ ok: false, present: [] });
+      }
+    }
+
+    /** Hear about installs, removals and activations; a Host without the event bus returns a no-op. */
+    function observePresence(ctx, listener) {
+      var remote = suiteServices(ctx).remote;
+      var on = safeGet(remote, "$on");
+      if (typeof on !== "function") return function () {};
+      try {
+        var off = on.call(remote, "plugin-manager/changed", listener);
+        return typeof off === "function" ? function () { off(); } : function () {};
+      } catch (e) {
+        return function () {};
+      }
+    }
+
+    /**
+     * The centre's main panel, where this Host registered one. A slots entry keeps its
+     * identity in `options` (`options.key` is the panel id the layout selects); older
+     * shapes kept `key`/`id` at the top level, which is still read as a fallback.
+     */
+    function centerPanel(ctx) {
+      var slots = suiteServices(ctx).slots;
+      var entries = safeGet(slots, "entries");
+      if (typeof entries !== "function") return undefined;
+      var listed;
+      try { listed = entries.call(slots, "main"); } catch (e) { return undefined; }
+      if (!Array.isArray(listed)) return undefined;
+      for (var i = 0; i < listed.length; i++) {
+        var record = asRecord(listed[i]);
+        var options = asRecord(safeGet(record, "options"));
+        var key = options ? (safeGet(options, "key") !== undefined ? safeGet(options, "key") : safeGet(options, "id"))
+          : (record ? (safeGet(record, "key") !== undefined ? safeGet(record, "key") : safeGet(record, "id")) : undefined);
+        if (key === CENTER_PANEL) return CENTER_PANEL;
+      }
+      return undefined;
+    }
+
+    /**
+     * Send the person to the centre, or to the Host's own way of installing it. A panel that
+     * is gone, a layout that refuses, and a missing navigation contract each fall through to
+     * the next, and the last answer is the spec a person can paste into the Plugins page.
+     */
+    function openCenter(ctx) {
+      var services = suiteServices(ctx);
+      var panel = centerPanel(ctx);
+      var selectPanel = safeGet(services.layout, "selectPanel");
+      if (panel !== undefined && typeof selectPanel === "function") {
+        try { selectPanel.call(services.layout, panel); return { kind: "center" }; } catch (e) { /* the panel is gone */ }
+      }
+      var navigation = services.navigation;
+      var openBundle = safeGet(navigation, "openBundle");
+      if (typeof openBundle === "function") {
+        try { openBundle.call(navigation, SUITE.center); return { kind: "plugins" }; } catch (e) { /* no Plugins panel here */ }
+      }
+      var openInstall = safeGet(navigation, "openInstall");
+      if (typeof openInstall === "function") {
+        try { openInstall.call(navigation, { spec: CENTER_SPEC }); return { kind: "plugins" }; } catch (e) { /* nothing could open */ }
+      }
+      return { kind: "manual", spec: CENTER_SPEC };
+    }
+
+    /** Which of `wanted` this Host does not have yet, in the order the surface lists them. */
+    function missingFrom(present, wanted) {
+      return wanted.filter(function (want) { return present.indexOf(want.package) < 0; });
+    }
+
+    /** What the card says: the absent components, or the one way to the rest. An unreadable inventory claims nothing. */
+    function suiteHint(read, wanted) {
+      if (!read.ok) return { kind: "tools", missing: [] };
+      var missing = missingFrom(read.present, wanted);
+      if (missing.length === 0) return { kind: "tools", missing: [] };
+      return {
+        kind: "missing",
+        missing: missing.map(function (want) { return { package: want.package, line: want.line }; }),
+      };
+    }
+
+    /** Write text through the browser's clipboard, where the page has one. */
+    function writeClipboard(text) {
+      var clipboard = typeof navigator !== "undefined" && navigator ? safeGet(navigator, "clipboard") : undefined;
+      var write = safeGet(clipboard, "writeText");
+      if (typeof write !== "function") return Promise.resolve(false);
+      try {
+        return Promise.resolve(write.call(clipboard, text)).then(function () { return true; }, function () { return false; });
+      } catch (e) {
+        return Promise.resolve(false);
+      }
+    }
+
+    /** One read of what this Host has, shared by every card this bundle renders. */
+    function createSuiteStore(ctx, wanted) {
+      var snapshot = { read: false, found: { ok: false, present: [] }, hint: { kind: "tools", missing: [] } };
+      var listeners = [];
+      function publish(next) {
+        snapshot = next;
+        var copy = listeners.slice();
+        for (var i = 0; i < copy.length; i++) copy[i]();
+      }
+      function read() {
+        return readPresence(ctx).then(function (found) {
+          publish({ read: true, found: found, hint: suiteHint(found, wanted) });
+        });
+      }
+      return {
+        subscribe: function (listener) {
+          listeners.push(listener);
+          return function () {
+            var at = listeners.indexOf(listener);
+            if (at >= 0) listeners.splice(at, 1);
+          };
+        },
+        getSnapshot: function () { return snapshot; },
+        open: function () { return openCenter(ctx); },
+        copy: writeClipboard,
+        /** Start the first read and every later refresh; the returned disposer releases both. */
+        start: function () {
+          void read();
+          return observePresence(ctx, function () { void read(); });
+        },
+      };
+    }
+
+    /**
+     * The companion components this Host lacks, and the one quiet way into the plugin centre.
+     * It renders nothing until its own read settled, installs nothing, and opens nothing by
+     * itself: every line here is a statement about the Host, and the button is the only action.
+     */
+    function SuiteCard(props) {
+      var store = useMemo(function () {
+        return props.store || createSuiteStore(props.ctx, COMPANIONS);
+      }, [props.ctx, props.store]);
+      var st = useState(store.getSnapshot()), snap = st[0], setSnap = st[1];
+      var mn = useState(null), manual = mn[0], setManual = mn[1];
+      var cp = useState(false), copied = cp[0], setCopied = cp[1];
+
+      useEffect(function () {
+        // Subscribe before the first read: a change published during it must still reach this card.
+        var off = store.subscribe(function () { setSnap(store.getSnapshot()); });
+        var stop = store.start();
+        return function () { off(); stop(); };
+      }, [store]);
+
+      if (!snap.read) return null;
+      var missing = snap.hint.kind === "missing";
+      var kids = [
+        h("div", { key: "t", style: { fontSize: "12px", fontWeight: 600 } }, missing ? SUITE_COPY.missingTitle : SUITE_COPY.toolsTitle),
+        h("div", { key: "i", style: { fontSize: "11px", color: C.muted, lineHeight: 1.6 } }, missing ? SUITE_COPY.missingIntro : SUITE_COPY.toolsIntro),
+      ];
+      for (var i = 0; i < snap.hint.missing.length; i++) {
+        var line = snap.hint.missing[i];
+        kids.push(h("div", { key: "m:" + line.package, style: { fontSize: "12px", lineHeight: 1.6 } }, line.line));
+      }
+      kids.push(h("div", { key: "k", style: { fontSize: "11px", color: C.muted, lineHeight: 1.6 } }, SUITE_COPY.keep));
+      kids.push(h("div", { key: "a", style: { display: "flex", flexWrap: "wrap", gap: "6px", paddingTop: "2px" } }, [
+        h(Btn, {
+          key: "open", active: missing, title: "打开插件中心",
+          onClick: function () {
+            var target = store.open();
+            setCopied(false);
+            setManual(target.kind === "manual" ? { spec: target.spec } : null);
+          },
+        }, SUITE_COPY.open),
+      ]));
+      if (manual) {
+        kids.push(h("div", { key: "mn", style: { fontSize: "11px", color: C.muted, lineHeight: 1.6 } }, SUITE_COPY.manual));
+        kids.push(h("code", {
+          key: "spec",
+          style: { fontSize: "12px", padding: "2px 6px", borderRadius: "6px", background: C.softer, border: "1px solid " + C.line, userSelect: "text", alignSelf: "flex-start" },
+        }, manual.spec));
+        kids.push(h("div", { key: "cp", style: { display: "flex", flexWrap: "wrap", gap: "6px" } }, [
+          h(Btn, {
+            key: "copy", title: "复制包名",
+            onClick: function () { void store.copy(manual.spec).then(function (written) { setCopied(written); }); },
+          }, copied ? SUITE_COPY.copied : SUITE_COPY.copy),
+        ]));
+      }
+      return h("div", {
+        "data-mp-companions": "1",
+        style: {
+          display: "flex", flexDirection: "column", gap: "5px", flex: "none", boxSizing: "border-box",
+          padding: "9px 10px", borderRadius: "8px", border: "1px dashed " + C.line, background: C.softer, color: C.fg,
+        },
+      }, kids);
     }
 
     // ── video ───────────────────────────────────────────────────────────────
@@ -216,13 +521,14 @@ window.__ModuleLoader__.load({
       var er = useState(null), err = er[0], setErr = er[1];
       var du = useState(null), dur = du[0], setDur = du[1];
       var dims = useState(null), dim = dims[0], setDim = dims[1];
+      var tl = useState(false), tools = tl[0], setTools = tl[1];
 
       useEffect(function () { setErr(null); setDur(null); setDim(null); }, [url]);
       useEffect(function () { if (vref.current) vref.current.playbackRate = rate; }, [rate, url]);
 
       var info = [dur != null ? fmtDur(dur) : null, dim ? dim : null, extOf(abs).toUpperCase()].filter(Boolean).join(" · ");
 
-      return h(Shell, null, [
+      return h(Shell, { key: "root", tools: tools ? h(SuiteCard, { ctx: props.ctx }) : null }, [
         h("div", { key: "stage", style: { flex: "1 1 auto", minHeight: 0, display: "flex", background: "#000", borderRadius: "8px", overflow: "hidden" } },
           err
             ? h("div", { style: { margin: "auto", padding: "20px", textAlign: "center", color: "#ddd", fontSize: "13px", lineHeight: 1.7 } }, [
@@ -245,7 +551,7 @@ window.__ModuleLoader__.load({
         h(Bar, { key: "bar", title: baseName(abs) + (info ? "  ·  " + info : ""), path: abs }, [
           h(RatePicker, { key: "rate", rate: rate, set: setRate }),
           h(Btn, { key: "loop", active: loop, title: "循环播放", onClick: function () { setLoop(!loop); } }, "循环"),
-          CommonActions(props, abs, url),
+          CommonActions(props, abs, url, tools, function () { setTools(!tools); }),
         ]),
       ]);
     }
@@ -261,6 +567,7 @@ window.__ModuleLoader__.load({
       var lp = useState(false), loop = lp[0], setLoop = lp[1];
       var er = useState(null), err = er[0], setErr = er[1];
       var du = useState(null), dur = du[0], setDur = du[1];
+      var tl = useState(false), tools = tl[0], setTools = tl[1];
 
       useEffect(function () { setErr(null); setDur(null); }, [url]);
       useEffect(function () { if (aref.current) aref.current.playbackRate = rate; }, [rate, url]);
@@ -311,7 +618,7 @@ window.__ModuleLoader__.load({
         };
       }, [url]);
 
-      return h(Shell, null, [
+      return h(Shell, { key: "root", tools: tools ? h(SuiteCard, { ctx: props.ctx }) : null }, [
         h("div", {
           key: "stage",
           style: {
@@ -333,7 +640,7 @@ window.__ModuleLoader__.load({
         h(Bar, { key: "bar", title: baseName(abs) + "  ·  " + [dur != null ? fmtDur(dur) : null, extOf(abs).toUpperCase()].filter(Boolean).join(" · "), path: abs }, [
           h(RatePicker, { key: "rate", rate: rate, set: setRate }),
           h(Btn, { key: "loop", active: loop, title: "循环播放", onClick: function () { setLoop(!loop); } }, "循环"),
-          CommonActions(props, abs, url),
+          CommonActions(props, abs, url, tools, function () { setTools(!tools); }),
         ]),
       ]);
     }
@@ -355,6 +662,7 @@ window.__ModuleLoader__.load({
       var vp = useState("fit"), view = vp[0], setView = vp[1];
       var rk = useState(0), reloadKey = rk[0], setReloadKey = rk[1];
       var sr = useState({ state: "idle", text: "" }), source = sr[0], setSource = sr[1];
+      var tl = useState(false), tools = tl[0], setTools = tl[1];
 
       var frameRef = useRef(null);
 
@@ -404,7 +712,7 @@ window.__ModuleLoader__.load({
         }));
       }
 
-      return h(Shell, null, [
+      return h(Shell, { key: "root", tools: tools ? h(SuiteCard, { ctx: props.ctx }) : null }, [
         stage,
         h(Bar, { key: "bar", title: baseName(abs), path: abs }, [
           h(Btn, { key: "m1", active: mode === "render", title: "渲染预览", onClick: function () { setMode("render"); } }, "预览"),
@@ -414,7 +722,7 @@ window.__ModuleLoader__.load({
           }) : null,
           h(Btn, { key: "js", active: scripts, title: scripts ? "脚本已允许，点击关闭（页面将重新加载）" : "脚本已禁用，点击允许", onClick: function () { setScripts(!scripts); } }, scripts ? "脚本 开" : "脚本 关"),
           h(Btn, { key: "rl", title: "重新加载", onClick: function () { setReloadKey(reloadKey + 1); } }, "刷新"),
-          CommonActions(props, abs, url),
+          CommonActions(props, abs, url, tools, function () { setTools(!tools); }),
         ]),
       ]);
     }
@@ -634,6 +942,8 @@ window.__ModuleLoader__.load({
       return h("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 } }, [
         header,
         body,
+        // The card sits at the foot of the gallery: a statement about the Host, never a launch ad.
+        h("div", { key: "tools", style: { flex: "none", padding: "0 10px 10px" } }, h(SuiteCard, { ctx: props.ctx })),
         sel >= 0 && items[sel]
           ? h(Lightbox, {
               key: "lb", ctx: props.ctx, store: props.store, scope: scope, item: items[sel], index: sel, total: items.length,
@@ -681,7 +991,19 @@ window.__ModuleLoader__.load({
       });
     }
 
-    module.exports = { inject: inject, apply: apply };
+    // The loader reads `inject` and `apply`; `__suite` is the companion-components core, kept
+    // exported so test/suite.test.mjs can drive it and the card through a fake loader and React.
+    module.exports = {
+      inject: inject,
+      apply: apply,
+      __suite: {
+        SUITE: SUITE, CENTER_PANEL: CENTER_PANEL, CENTER_SPEC: CENTER_SPEC, COMPANIONS: COMPANIONS,
+        suiteServices: suiteServices, bundlePresent: bundlePresent, presentFrom: presentFrom,
+        readPresence: readPresence, observePresence: observePresence, centerPanel: centerPanel,
+        openCenter: openCenter, missingFrom: missingFrom, suiteHint: suiteHint,
+        createSuiteStore: createSuiteStore, SuiteCard: SuiteCard,
+      },
+    };
     return module.exports;
   },
 });

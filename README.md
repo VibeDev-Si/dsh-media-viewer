@@ -16,6 +16,10 @@
 
 画廊在右侧栏的 **+ 菜单**里叫「媒体画廊」；每个播放器工具栏里的「画廊」按钮会直接打开它所在的文件夹。
 
+## 本版新增（0.1.2）
+
+新增「组件」入口：在预览工具栏里可直接打开 **VibeDev 插件中心**，了解或补齐影视工作台与 VibeDev 账号插件（打不开插件中心时会给出可复制的包名）；已安装或应用内置的组件不会重复推荐。
+
 ## 安装
 
 **前置依赖：[`dsh-better-sidebar`](https://www.npmjs.com/package/dsh-better-sidebar)**（≥ 0.24.0）。它接管了右侧栏的文件打开，本插件通过它的 `registerFileViewer` / `registerTab` 接入。没装它，本插件不会生效。
@@ -72,6 +76,7 @@ client 是无需构建的纯 JS（`client.js`），host 是 `index.js`，没有�
 - **Audio** — mp3 / wav / m4a / flac…, live spectrum, playback speed, loop.
 - **HTML** — scripts allowed by default; relative CSS / JS / images / video / `fetch()` all load; preview ⇄ source, phone / tablet / desktop widths, script toggle. Runs in an opaque-origin sandboxed iframe, so a previewed page cannot reach the GUI.
 - **Media gallery** — thumbnail grid for a folder with type filters, search, sort, optional recursion, and a lightbox with ← / → navigation.
+- **Related components (0.1.2)** — a 「组件」 entry in the preview toolbar opens the **VibeDev plugin centre** from the sidebar to learn about or add the film workbench and the VibeDev account plugin (and falls back to a copyable package name); components already installed or shipped by the app are never recommended again.
 
 Why it exists: the built-in `/sidebar/file` and `/sidebar/html` routes cap files at 20 MB, read them fully into memory, have no Range support, and their fence rejects the `cross-site` sub-resource requests a sandboxed iframe makes. This plugin ships its own `/mp/*` routes instead. Install it by package name from your DSH plugin manager, or `dsh plugin --profile <name> add @vibedev-si/dsh-media-viewer`, then reload the page.
 
