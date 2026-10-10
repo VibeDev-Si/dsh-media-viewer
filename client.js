@@ -158,6 +158,9 @@ window.__ModuleLoader__.load({
         h("rect", { key: "d", x: 9, y: 9, width: 5, height: 5, rx: 1, stroke: "currentColor", strokeWidth: 1.5 }),
       ]);
     }
+    function IconCheck(size) {
+      return svg(size, [pathEl("m3.5 8.3 2.9 2.9 6.1-6.4", { key: "a" })]);
+    }
     function kindIcon(kind, size) {
       return kind === "video" ? IconVideo(size) : kind === "audio" ? IconAudio(size) : kind === "html" ? IconHtml(size) : IconImage(size);
     }
@@ -419,6 +422,28 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    // ── add to the film canvas ──────────────────────────────────────────────
+
+    /** What the 影视工作台 (dsh-film-studio) canvas takes: images, videos and audio. */
+    function canAddToCanvas(it) { return it.kind === "image" || it.kind === "video" || it.kind === "audio"; }
+
+    /**
+     * Hand files to the open 影视工作台 canvas. The two plugins only share a DOM
+     * event: the workbench sets `detail.accepted` while handling it, so "not
+     * accepted" means the workbench plugin is not installed or not enabled.
+     * @param paths - absolute file paths.
+     * @param sessionId - the gallery's session (the workbench opens there if needed).
+     * @returns a promise of `{ ok, added?, failed?, message? }`.
+     */
+    function addToCanvas(paths, sessionId) {
+      return new Promise(function (resolve) {
+        var detail = { paths: paths, sessionId: sessionId, accepted: false, respond: resolve };
+        try { window.dispatchEvent(new CustomEvent("vibedev-film:add-media", { detail: detail })); }
+        catch (e) { resolve({ ok: false, message: String(e && e.message || e) }); return; }
+        if (!detail.accepted) resolve({ ok: false, message: "没有找到影视工作台：请先安装并启用「影视工作台」插件（dsh-film-studio）" });
+      });
+    }
+
     // ── gallery ─────────────────────────────────────────────────────────────
 
     function Thumb(p) {
@@ -505,6 +530,18 @@ window.__ModuleLoader__.load({
       var sz = useState(210), size = sz[0], setSize = sz[1];
       var se = useState(-1), sel = se[0], setSel = se[1];
       var tk = useState(0), tick = tk[0], setTick = tk[1];
+      // Multi-select for "加入画布": picked files are keyed by absolute path, so a
+      // pick survives filtering, searching and re-sorting.
+      var pk = useState(false), picking = pk[0], setPicking = pk[1];
+      var pd = useState({}), picked = pd[0], setPicked = pd[1];
+      var bz = useState(false), adding = bz[0], setAdding = bz[1];
+      var nt = useState(null), notice = nt[0], setNotice = nt[1];
+      var lastPick = useRef(-1);
+      useEffect(function () {
+        if (!notice) return undefined;
+        var timer = setTimeout(function () { setNotice(null); }, notice.kind === "error" ? 8000 : 4000);
+        return function () { clearTimeout(timer); };
+      }, [notice]);
 
       // Follow a re-seeded tab (opened again for another folder).
       useEffect(function () { setCur(seed); }, [seed]);
@@ -555,6 +592,41 @@ window.__ModuleLoader__.load({
 
       useEffect(function () { setSel(-1); }, [cur, recursive, filter, query]);
 
+      var pickedPaths = Object.keys(picked);
+      function togglePick(it, index, range) {
+        if (!canAddToCanvas(it)) return;
+        setPicked(function (prev) {
+          var next = Object.assign({}, prev);
+          if (range && lastPick.current >= 0) {
+            var from = Math.min(lastPick.current, index), to = Math.max(lastPick.current, index);
+            for (var i = from; i <= to; i++) if (items[i] && canAddToCanvas(items[i])) next[items[i].abs] = true;
+          } else if (next[it.abs]) delete next[it.abs];
+          else next[it.abs] = true;
+          return next;
+        });
+        lastPick.current = index;
+      }
+      function pickAll() {
+        var next = Object.assign({}, picked);
+        items.forEach(function (it) { if (canAddToCanvas(it)) next[it.abs] = true; });
+        setPicked(next);
+      }
+      function stopPicking() { setPicking(false); setPicked({}); lastPick.current = -1; }
+      function addPicked() {
+        if (adding || pickedPaths.length === 0) return;
+        setAdding(true);
+        addToCanvas(pickedPaths, scope.sessionId).then(function (result) {
+          setAdding(false);
+          if (result.ok) {
+            var failed = (result.failed || []).length;
+            setNotice({ kind: failed ? "warn" : "ok", text: "已加入画布 " + (result.added || 0) + " 个" + (failed ? "，" + failed + " 个未加入：" + result.failed.map(function (f) { return baseName(f.path) + "（" + f.reason + "）"; }).join("、") : "") });
+            stopPicking();
+          } else {
+            setNotice({ kind: "error", text: result.message || "加入画布失败" });
+          }
+        });
+      }
+
       var dir = data ? data.dir : cur;
       var root = data ? data.cwd : "";
       var crumbs = [];
@@ -578,8 +650,25 @@ window.__ModuleLoader__.load({
             ]);
           }),
           h("span", { key: "sp", style: { flex: 1 } }),
+          h(Btn, { key: "pick", active: picking, title: picking ? "退出多选" : "多选文件，加入影视工作台的画布", onClick: function () { if (picking) stopPicking(); else setPicking(true); } }, [IconCheck(12), picking ? "退出多选" : "多选"]),
           h(Btn, { key: "rf", title: "重新扫描文件夹", onClick: function () { setTick(tick + 1); } }, "刷新"),
         ]),
+        picking ? h("div", { key: "pickbar", style: { display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", flexWrap: "wrap" } }, [
+          h("span", { key: "n", style: { color: C.muted } }, "已选 " + pickedPaths.length + " 个（Shift 连选）"),
+          h(Btn, { key: "all", title: "选中当前列表里能加入画布的全部文件", onClick: pickAll }, "全选"),
+          h(Btn, { key: "none", title: "清空选择", disabled: pickedPaths.length === 0, onClick: function () { setPicked({}); lastPick.current = -1; } }, "清空"),
+          h("span", { key: "sp", style: { flex: 1 } }),
+          h("button", {
+            key: "add", type: "button", disabled: adding || pickedPaths.length === 0, onClick: addPicked,
+            title: "加入当前打开着的影视工作台画布（没有打开时会先在侧栏打开它）",
+            style: btn({ background: C.accent, borderColor: C.accent, color: "#fff", fontWeight: 600, opacity: adding || pickedPaths.length === 0 ? 0.5 : 1, cursor: adding || pickedPaths.length === 0 ? "default" : "pointer" }),
+          }, adding ? "正在加入…" : "加入画布（" + pickedPaths.length + "）"),
+        ]) : null,
+        notice ? h("div", {
+          key: "notice", role: notice.kind === "error" ? "alert" : "status",
+          style: { fontSize: "12px", lineHeight: 1.5, padding: "5px 8px", borderRadius: "6px",
+            background: notice.kind === "error" ? "rgba(229,72,77,.14)" : notice.kind === "warn" ? "rgba(245,166,35,.16)" : "rgba(48,164,108,.14)" },
+        }, notice.text) : null,
         h("div", { key: "r2", style: { display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap" } }, [
           FILTERS.map(function (f) {
             return h("button", { key: f.id, type: "button", onClick: function () { setFilter(f.id); }, style: chip(filter === f.id) }, f.label + " " + (counts[f.id] || 0));
@@ -615,7 +704,16 @@ window.__ModuleLoader__.load({
           ]);
         });
         var cards = items.map(function (it, i) {
-          return h("div", { key: it.abs, onClick: function () { setSel(i); }, title: it.rel, style: { cursor: "pointer", borderRadius: "8px", border: "1px solid " + C.line, overflow: "hidden", display: "flex", flexDirection: "column", minWidth: 0 } }, [
+          var addable = canAddToCanvas(it);
+          var chosen = !!picked[it.abs];
+          return h("div", {
+            key: it.abs,
+            onClick: function (e) { if (picking) togglePick(it, i, e.shiftKey); else setSel(i); },
+            title: picking && !addable ? "网页不能加入画布" : it.rel,
+            "aria-pressed": picking ? chosen : undefined,
+            style: { position: "relative", cursor: picking && !addable ? "not-allowed" : "pointer", borderRadius: "8px", border: chosen ? "2px solid " + C.accent : "1px solid " + C.line, margin: chosen ? "-1px" : 0, overflow: "hidden", display: "flex", flexDirection: "column", minWidth: 0, opacity: picking && !addable ? 0.45 : 1 },
+          }, [
+            picking && addable ? h("span", { key: "chk", "aria-hidden": "true", style: { position: "absolute", right: "6px", top: "6px", zIndex: 1, width: "18px", height: "18px", borderRadius: "5px", display: "flex", alignItems: "center", justifyContent: "center", background: chosen ? C.accent : "rgba(0,0,0,.45)", border: "1.5px solid #fff", color: "#fff" } }, chosen ? IconCheck(11) : null) : null,
             h(Thumb, { key: "t", item: it, scope: scope }),
             h("div", { key: "m", style: { padding: "5px 8px 6px", fontSize: "12px", minWidth: 0 } }, [
               h("div", { key: "n", style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 } }, recursive ? it.rel : it.name),
