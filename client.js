@@ -1,9 +1,10 @@
 /*!
  * dsh-media-viewer — client half (browser bundle, no build step).
  *
- * Registers with dsh-better-sidebar through `ctx.betterSidebar`:
- *   - file viewers: video (mp4/webm/mov/...), audio (mp3/wav/...), html
- *   - a tab: "媒体画廊", a thumbnail grid of the media in a folder
+ * Registers on the host's own right sidebar (DSH 0.2.1-alpha.2 and later):
+ *   - document previews: video (mp4/webm/mov/...), audio (mp3/wav/...), html
+ *   - a page: "媒体画廊", a thumbnail grid of the media in a folder
+ * and, when dsh-better-sidebar is installed, the same viewers and tab inside it.
  *
  * Bundle format: the official DSH client-bundle shape, a CommonJS-style
  * factory registered through window.__ModuleLoader__.load. `react` is resolved
@@ -57,6 +58,15 @@ window.__ModuleLoader__.load({
       var segs = abs.split(/[\\/]+/).filter(Boolean);
       return "/mp/f/" + encodeURIComponent(scope.sessionId) + "/" + (unc ? "/" : "") +
         segs.map(encodeURIComponent).join("/") + (query ? "?" + query : "");
+    }
+
+    /**
+     * The URL a player streams. A document preview passes the file's version as `nonce`: the browser shares one media
+     * resource per URL within a page, and one held by a gallery thumbnail or the lightbox can leave a second player of
+     * the same file waiting with no request at all.
+     */
+    function playUrl(props, abs) {
+      return fileUrl(props.scope, abs, props.nonce ? "v=" + encodeURIComponent(props.nonce) : "");
     }
 
     function fmtSize(n) {
@@ -177,9 +187,14 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /**
+     * Open the gallery on a file's folder. The host's own right sidebar does it (a native page tab); a view hosted by
+     * dsh-better-sidebar keeps opening its tab there, as before 0.2.0.
+     */
     function openGallery(props, abs) {
       try {
-        props.ctx.betterSidebar.openTab({ type: "mp:gallery", path: dirName(abs), title: baseName(dirName(abs)) || "媒体画廊" }, props.scope);
+        if (typeof props.openGallery === "function") props.openGallery(dirName(abs));
+        else props.ctx.betterSidebar.openTab({ type: "mp:gallery", path: dirName(abs), title: baseName(dirName(abs)) || "媒体画廊" }, props.scope);
       } catch (e) { console.error("[dsh-media-viewer] open gallery failed", e); }
     }
 
@@ -204,7 +219,8 @@ window.__ModuleLoader__.load({
 
     function Shell(p) {
       return h("div", {
-        style: { display: "flex", flexDirection: "column", gap: "8px", padding: "10px", minWidth: 0, minHeight: 0, height: "100%", boxSizing: "border-box" },
+        // The host's document pane sets a monospace face for code; the player's labels are ordinary UI text.
+        style: { display: "flex", flexDirection: "column", gap: "8px", padding: "10px", minWidth: 0, minHeight: 0, height: "100%", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" },
       }, p.children);
     }
 
@@ -212,7 +228,7 @@ window.__ModuleLoader__.load({
 
     function VideoView(props) {
       var abs = absOf(props.scope, props.path);
-      var url = fileUrl(props.scope, abs);
+      var url = playUrl(props, abs);
       var vref = useRef(null);
       var st = useState(1), rate = st[0], setRate = st[1];
       var lp = useState(false), loop = lp[0], setLoop = lp[1];
@@ -257,7 +273,7 @@ window.__ModuleLoader__.load({
 
     function AudioView(props) {
       var abs = absOf(props.scope, props.path);
-      var url = fileUrl(props.scope, abs);
+      var url = playUrl(props, abs);
       var aref = useRef(null);
       var cref = useRef(null);
       var st = useState(1), rate = st[0], setRate = st[1];
@@ -459,11 +475,56 @@ window.__ModuleLoader__.load({
         return function () { io.disconnect(); };
       }, []);
 
+      // A video thumbnail keeps its <video> only until one frame is captured, then shows that frame as an image: a
+      // player left on the page holds a connection, and a grid of them would leave none for anything else. Hovering
+      // brings a muted player back for the preview.
+      var ps = useState(null), poster = ps[0], setPoster = ps[1];
+      var hv = useState(false), hover = hv[0], setHover = hv[1];
+      // Native listeners, plus a look at the state the element is already in: a frame can be ready before React's
+      // media handlers see it, and a missed event left the player on the page for good.
+      useEffect(function () {
+        var v = vid.current;
+        if (!vis || hover || poster || it.kind !== "video" || !v) return undefined;
+        var done = false;
+        function capture() {
+          if (done) return;
+          done = true;
+          try {
+            var w = Math.min(480, v.videoWidth || 480), hh = Math.round(w * ((v.videoHeight || 270) / (v.videoWidth || 480)));
+            var cv = document.createElement("canvas");
+            cv.width = w; cv.height = hh;
+            cv.getContext("2d").drawImage(v, 0, 0, w, hh);
+            setPoster(cv.toDataURL("image/jpeg", 0.72));
+          } catch (err) { setPoster("none"); }
+        }
+        // The frame at 0.5 s: the media fragment usually lands there already; otherwise seek, and take it once there.
+        function settle() {
+          if (v.readyState < 2) return;
+          if (v.currentTime > 0.05 || !(v.duration > 0.6)) capture();
+          else if (!v.seeking) { try { v.currentTime = 0.5; } catch (err) { capture(); } }
+        }
+        v.addEventListener("loadeddata", settle);
+        v.addEventListener("canplay", settle);
+        v.addEventListener("seeked", settle);
+        settle();
+        return function () {
+          done = true;
+          v.removeEventListener("loadeddata", settle);
+          v.removeEventListener("canplay", settle);
+          v.removeEventListener("seeked", settle);
+        };
+      }, [vis, hover, poster]);
+
       var url = fileUrl(scope, it.abs);
       var inner;
+      var fill = { width: "100%", height: "100%", objectFit: "cover", background: "#000" };
       if (!vis) inner = null;
       else if (it.kind === "image") inner = h("img", { src: url, loading: "lazy", draggable: false, style: { width: "100%", height: "100%", objectFit: "cover" } });
-      else if (it.kind === "video") inner = h("video", { ref: vid, src: url + "#t=0.5", muted: true, preload: "metadata", playsInline: true, style: { width: "100%", height: "100%", objectFit: "cover", background: "#000" } });
+      else if (it.kind === "video" && poster && poster !== "none" && !hover) inner = h("img", { src: poster, draggable: false, alt: "", style: fill });
+      else if (it.kind === "video") inner = h("video", {
+        key: hover ? "play" : "frame", ref: vid, src: url + (hover ? "" : "#t=0.5"), muted: true, preload: "metadata", playsInline: true,
+        autoPlay: hover, loop: hover, style: fill,
+      });
       else inner = h("div", {
         style: { width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px",
           background: it.kind === "audio" ? "linear-gradient(145deg, rgba(124,92,255,.35), rgba(34,211,238,.25))" : "linear-gradient(145deg, rgba(255,140,60,.28), rgba(255,80,120,.2))" },
@@ -471,8 +532,8 @@ window.__ModuleLoader__.load({
 
       return h("div", {
         ref: ref,
-        onMouseEnter: function () { var v = vid.current; if (v) { v.currentTime = 0; var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } },
-        onMouseLeave: function () { var v = vid.current; if (v) { v.pause(); v.currentTime = 0.5; } },
+        onMouseEnter: function () { if (it.kind === "video") setHover(true); },
+        onMouseLeave: function () { if (it.kind === "video") setHover(false); },
         style: { position: "relative", width: "100%", aspectRatio: "16 / 10", background: C.soft, overflow: "hidden", borderRadius: "8px 8px 0 0" },
       }, [
         inner,
@@ -743,43 +804,202 @@ window.__ModuleLoader__.load({
       ]);
     }
 
-    // ── registration ────────────────────────────────────────────────────────
+    // ── the host's own right sidebar (DSH 0.2.1-alpha.2 and later) ──────────
+    //
+    // Since 0.2.0 the viewer stands on the host's public surfaces only, so an app update never strands it behind a
+    // third-party plugin that has not caught up:
+    //   - video / audio / HTML bodies: `ctx.documentPreviews` + the keyed `sidebar.right.tab.document` seat
+    //     (content loading "renderer": the body streams the file from our own /mp route);
+    //   - the gallery: a page type in `ctx.sidebarRightTabs` + the keyed `sidebar.right.pane.tab` seat;
+    //   - "画廊" buttons: the document toolbar (`sidebar.right.tab.document.actions`) and the file tree
+    //     (`sidebar.right.tab.files.actions`).
 
-    var inject = ["betterSidebar"];
+    var PACKAGE = "@vibedev-si/dsh-media-viewer";
+    var GALLERY_ID = PACKAGE + "/gallery";
+    var GALLERY_KIND = "vibedev-media-gallery";
+    var PREVIEWS = [
+      { id: PACKAGE + "/video", title: "视频播放器", exts: VIDEO_EXTS, binary: true, view: VideoView },
+      { id: PACKAGE + "/audio", title: "音频播放器", exts: AUDIO_EXTS, binary: true, view: AudioView },
+      { id: PACKAGE + "/html", title: "网页预览（允许脚本）", exts: HTML_EXTS, binary: false, view: HtmlView },
+    ];
 
-    function apply(ctx) {
-      // Each registration returns a disposer; wrapping in ctx.effect makes
-      // cordis call it on teardown (HMR / plugin disable) so re-activation
-      // does not throw "already registered".
-      ctx.effect(function () {
-        return ctx.betterSidebar.registerFileViewer({
-          id: "mp:video", title: "视频播放器", icon: IconVideo, exts: VIDEO_EXTS, priority: 10, fetchStrategy: "none", component: VideoView,
+    /** `dsh-resource://file/session/<id>/<path>` → `{ sessionId, path }` (the host's address grammar). */
+    function parseSessionAddress(address) {
+      var prefix = "dsh-resource://file/session/";
+      if (typeof address !== "string" || address.indexOf(prefix) !== 0) return null;
+      var rest = address.slice(prefix.length).split(/[?#]/)[0].split("/");
+      if (rest.length < 2 || !rest[0]) return null;
+      try {
+        return { sessionId: decodeURIComponent(rest[0]), path: rest.slice(1).map(decodeURIComponent).join("/") };
+      } catch (e) { return null; }
+    }
+
+    /** The host's right sidebar, when it is there (read lazily: it may mount after this plugin). */
+    function sidebarOf(ctx) {
+      try { return ctx.get ? ctx.get("sidebarRight") : undefined; } catch (e) { return undefined; }
+    }
+
+    /** Open (or re-aim) the gallery page in the session on screen. */
+    function openGalleryPage(ctx, dir) {
+      var sidebar = sidebarOf(ctx);
+      if (!sidebar) return;
+      sidebar.openTab(GALLERY_KIND, { params: { path: dir || "" }, revealIfOpened: true });
+    }
+
+    function Notice(text) {
+      return h("div", { style: { margin: "auto", padding: "24px", textAlign: "center", color: C.muted, fontSize: "13px", lineHeight: 1.7 } }, text);
+    }
+
+    /**
+     * One document body: the file's host path and version come from the standard `useResource`; the view streams the
+     * file itself, and reports the version it shows so the host's "file changed" bar works as for its own previews.
+     */
+    function documentBody(View) {
+      return function MediaDocumentBody(props) {
+        var info = props.useTabInfo ? props.useTabInfo() : null;
+        var meta = props.useResource ? props.useResource(props.resourceAddress) : { status: "none" };
+        var file = parseSessionAddress(props.resourceAddress);
+        var content = props.content;
+        var abs = meta && meta.value ? meta.value.absolutePath : undefined;
+        var version = meta && meta.value ? meta.value.version : undefined;
+        var revision = content && content.kind === "renderer" ? content.revision : 0;
+        useEffect(function () {
+          if (content && content.kind === "renderer" && abs) content.loaded(version === undefined ? "" : String(version));
+        }, [revision, abs, version]);
+        if (!file) return Notice("这个文件不在会话的工作区里，无法预览");
+        if (!abs) return Notice(meta && meta.status === "failed" ? "读取文件信息失败" : "正在读取文件…");
+        return h(View, {
+          key: String(revision),
+          scope: { sessionId: file.sessionId, cwd: "" },
+          path: abs,
+          nonce: (version === undefined ? "" : String(version)) + "." + revision,
+          // The document toolbar already carries "画廊" (sidebar.right.tab.document.actions).
+          hideGallery: true,
+          openGallery: function (dir) {
+            var actions = info && info.tab && info.tab.actions;
+            if (actions && actions.openTab) actions.openTab(GALLERY_KIND, { params: { path: dir || "" }, revealIfOpened: true });
+          },
         });
+      };
+    }
+
+    /** The gallery as a host page: its folder arrives as the navigation's `params.path`. */
+    function GalleryPage(props) {
+      var info = props.useTabInfo ? props.useTabInfo() : null;
+      var tab = info && info.tab;
+      var params = (tab && tab.navigation && tab.navigation.params) || {};
+      var sessionId = props.sessionId || (tab && tab.sessionId) || "";
+      if (!sessionId) return Notice("请先打开一个会话");
+      return h(GalleryTab, {
+        ctx: props.ctx,
+        scope: { sessionId: sessionId, cwd: "" },
+        tab: { path: typeof params.path === "string" ? params.path : "" },
+        visible: tab ? tab.visible !== false : true,
       });
+    }
+
+    function GuideIcon(p) { return IconGrid((p && p.size) || 16); }
+
+    /** "画廊" in the document toolbar: only for files the gallery shows. */
+    function documentAction(ctx) {
+      return function GalleryDocumentAction(props) {
+        var abs = props.absolutePath || "";
+        if (kindOf(abs) === "other") return null;
+        return h(Btn, { title: "浏览所在文件夹的全部媒体", onClick: function () { openGalleryPage(ctx, dirName(abs)); } }, [IconGrid(12), "画廊"]);
+      };
+    }
+
+    /** "媒体画廊" beside the file tree's reload control: the folder the tree shows. */
+    function filesAction(ctx) {
+      return function GalleryFilesAction(props) {
+        return h(Btn, { title: "以缩略图浏览这个文件夹里的视频、音频、图片和网页", onClick: function () { openGalleryPage(ctx, props.absolutePath || ""); } }, [IconGrid(12), "媒体画廊"]);
+      };
+    }
+
+    function registerNative(ctx) {
       ctx.effect(function () {
-        return ctx.betterSidebar.registerFileViewer({
-          id: "mp:audio", title: "音频播放器", icon: IconAudio, exts: AUDIO_EXTS, priority: 10, fetchStrategy: "none", component: AudioView,
+        return ctx.sidebarRightTabs.register({
+          id: GALLERY_ID,
+          kind: GALLERY_KIND,
+          title: function () { return "媒体画廊"; },
+          guide: [{ id: "gallery", order: 60, title: function () { return "媒体画廊"; }, description: function () { return "以缩略图浏览文件夹里的视频、音频、图片和网页"; }, icon: GuideIcon }],
         });
-      });
+      }, "dsh-media-viewer: gallery type");
       ctx.effect(function () {
-        return ctx.betterSidebar.registerFileViewer({
-          id: "mp:html", title: "网页预览（允许脚本）", icon: IconHtml, exts: HTML_EXTS, priority: 10, fetchStrategy: "none", component: HtmlView,
+        return ctx.slots.inject("sidebar.right.pane.tab", function () {
+          return ctx.slots.register({ name: "sidebar.right.pane.tab", key: GALLERY_ID, inject: function (sessionId) { return { ctx: ctx, sessionId: sessionId }; } }, GalleryPage);
         });
-      });
+      }, "dsh-media-viewer: gallery body");
       ctx.effect(function () {
-        return ctx.betterSidebar.registerTab({
-          id: "mp:gallery",
-          title: "媒体画廊",
-          description: "以缩略图浏览文件夹里的视频、音频、图片和网页",
-          icon: IconGrid,
-          order: 60,
-          dedupeKey: function (tab) { return tab.path || "mp:gallery"; },
-          component: GalleryTab,
+        return ctx.slots.inject("sidebar.right.tab.files.actions", function () {
+          return ctx.slots.register({ name: "sidebar.right.tab.files.actions", id: GALLERY_ID }, filesAction(ctx));
+        });
+      }, "dsh-media-viewer: file tree action");
+      ctx.effect(function () {
+        return ctx.slots.inject("sidebar.right.tab.document.actions", function () {
+          return ctx.slots.register({ name: "sidebar.right.tab.document.actions", id: GALLERY_ID }, documentAction(ctx));
+        });
+      }, "dsh-media-viewer: document action");
+      // Document previews are optional: without the host's preview package there is nothing to register them with.
+      ctx.inject(["documentPreviews"], function (scope) {
+        PREVIEWS.forEach(function (preview) {
+          scope.effect(function () {
+            return scope.documentPreviews.register({
+              id: preview.id, extensions: preview.exts, binaryExtensions: preview.binary ? preview.exts : [],
+              priority: "extension", title: function () { return preview.title; }, loading: "renderer", wrap: false,
+            });
+          }, "dsh-media-viewer: " + preview.id + " metadata");
+          scope.effect(function () {
+            return scope.slots.inject("sidebar.right.tab.document", function () {
+              return scope.slots.register({ name: "sidebar.right.tab.document", key: preview.id }, documentBody(preview.view));
+            });
+          }, "dsh-media-viewer: " + preview.id + " body");
         });
       });
     }
 
-    module.exports = { inject: inject, apply: apply };
+    // ── dsh-better-sidebar, when it is installed ────────────────────────────
+    //
+    // Better Sidebar's editor claims every file address ahead of the host's previews, so with it installed the media
+    // views must also live inside it (as they did before 0.2.0). Optional: nothing waits for it.
+
+    function registerBetterSidebar(ctx) {
+      // The gallery stays the host's own page (one 媒体画廊, not two); the viewers' "画廊" button opens it.
+      function withNativeGallery(View) {
+        return function (props) {
+          return h(View, Object.assign({}, props, { openGallery: function (dir) { openGalleryPage(ctx, dir); } }));
+        };
+      }
+      ctx.inject(["betterSidebar"], function (scope) {
+        // Each registration returns a disposer; wrapping it in scope.effect lets cordis dispose it on teardown.
+        scope.effect(function () {
+          return scope.betterSidebar.registerFileViewer({
+            id: "mp:video", title: "视频播放器", icon: IconVideo, exts: VIDEO_EXTS, priority: 10, fetchStrategy: "none", component: withNativeGallery(VideoView),
+          });
+        });
+        scope.effect(function () {
+          return scope.betterSidebar.registerFileViewer({
+            id: "mp:audio", title: "音频播放器", icon: IconAudio, exts: AUDIO_EXTS, priority: 10, fetchStrategy: "none", component: withNativeGallery(AudioView),
+          });
+        });
+        scope.effect(function () {
+          return scope.betterSidebar.registerFileViewer({
+            id: "mp:html", title: "网页预览（允许脚本）", icon: IconHtml, exts: HTML_EXTS, priority: 10, fetchStrategy: "none", component: withNativeGallery(HtmlView),
+          });
+        });
+      });
+    }
+
+    // ── registration ────────────────────────────────────────────────────────
+
+    var inject = ["slots", "sidebarRightTabs"];
+
+    function apply(ctx) {
+      registerNative(ctx);
+      registerBetterSidebar(ctx);
+    }
+
+    module.exports = { inject: inject, apply: apply, internals: { parseSessionAddress: parseSessionAddress, GALLERY_KIND: GALLERY_KIND, PREVIEWS: PREVIEWS } };
     return module.exports;
   },
 });

@@ -5,7 +5,7 @@ import { createServer, request as httpRequest } from 'node:http'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { apply } from '../index.js'
+import { apply, MEDIA_CHUNK_BYTES } from '../index.js'
 
 const root = mkdtempSync(join(tmpdir(), 'mv-'))
 const cwd = join(root, '工作区')
@@ -128,6 +128,23 @@ r = await fetch(fileUrl(join(cwd, 'clip.mp4')), { method: 'HEAD' })
 assert.equal(r.status, 200); assert.equal(r.headers.get('content-length'), '1000')
 r = await fetch(fileUrl(join(cwd, 'clip.mp4')), { method: 'POST' })
 assert.equal(r.status, 405)
+
+// 12. Open-ended media ranges are capped, so a player never holds a connection for the whole file
+//     (several videos on screen would exhaust the browser's six connections per host).
+writeFileSync(join(cwd, 'long.mp4'), Buffer.alloc(MEDIA_CHUNK_BYTES + 1000))
+r = await get(fileUrl(join(cwd, 'long.mp4')), { range: 'bytes=0-' })
+assert.equal(r.status, 206)
+assert.equal(r.headers.get('content-range'), `bytes 0-${MEDIA_CHUNK_BYTES - 1}/${MEDIA_CHUNK_BYTES + 1000}`)
+assert.equal((await r.arrayBuffer()).byteLength, MEDIA_CHUNK_BYTES)
+r = await get(fileUrl(join(cwd, 'long.mp4')), { range: `bytes=${MEDIA_CHUNK_BYTES}-` })
+assert.equal(r.headers.get('content-range'), `bytes ${MEDIA_CHUNK_BYTES}-${MEDIA_CHUNK_BYTES + 999}/${MEDIA_CHUNK_BYTES + 1000}`, 'the player continues where it stopped')
+await r.arrayBuffer()
+r = await get(fileUrl(join(cwd, 'long.mp4')), { range: 'bytes=10-19' })
+assert.equal(r.headers.get('content-range'), `bytes 10-19/${MEDIA_CHUNK_BYTES + 1000}`, 'an explicit range is served as asked')
+await r.arrayBuffer()
+r = await get(fileUrl(join(cwd, 'long.mp4')) + '?download=1', { range: 'bytes=0-' })
+assert.equal(r.headers.get('content-range'), `bytes 0-${MEDIA_CHUNK_BYTES + 999}/${MEDIA_CHUNK_BYTES + 1000}`, 'a download gets the whole file')
+await r.arrayBuffer()
 
 server.close()
 console.log('all route tests passed' + (linked ? '' : ' (symlink case skipped)'))

@@ -36,8 +36,22 @@ import { basename, extname, resolve } from 'node:path'
 
 export const name = '@vibedev-si/dsh-media-viewer'
 
-/** Services required before mounting. */
-export const inject = ['webServer', 'sessions', 'webRuntime']
+/**
+ * Services required before mounting. The extra trusted hosts come from `webStartup` (DSH 0.2.1-alpha.2 and later)
+ * or `webRuntime` (earlier releases), read when present: requiring either one left the plugin pending on the other.
+ */
+export const inject = ['webServer', 'sessions']
+
+/** The deployment's extra trusted hosts (loopback is always trusted), from whichever startup service this host has. */
+export function trustedHostsOf(ctx) {
+  for (const service of ['webStartup', 'webRuntime']) {
+    try {
+      const value = typeof ctx.get === 'function' ? ctx.get(service) : ctx[service]
+      if (Array.isArray(value?.trustedHosts)) return value.trustedHosts
+    } catch { /* not provided by this host */ }
+  }
+  return []
+}
 
 // ── content types ───────────────────────────────────────────────────────────
 
@@ -246,18 +260,35 @@ function parseRange(raw, size) {
   return { start, end: Math.min(end, size - 1) }
 }
 
-function serveFile(req, res, path, size, type, extra) {
+/**
+ * The most an open-ended media range (`bytes=N-`) gets in one response. A player asks for the rest of the file, reads
+ * what it needs (just the metadata for preload=metadata) and then stops reading, which leaves the response unfinished
+ * and its connection taken. A page that also keeps its own streams open runs out of the browser's six connections per
+ * host, and the next video waits with no request at all. A small capped 206 is read to its end, frees the connection,
+ * and the player asks again from where it stopped.
+ */
+export const MEDIA_CHUNK_BYTES = 256 * 1024
+
+/** @param chunk - cap for an open-ended range, for media playback; undefined serves what was asked. */
+function serveFile(req, res, path, size, type, extra, chunk) {
   const base = {
     'content-type': type,
     'accept-ranges': 'bytes',
-    'cache-control': 'no-cache',
+    // no-store, not no-cache: a stored response keeps the browser cache's single-writer lock on the URL while a
+    // player holds its stream (a gallery thumbnail, the lightbox), and every other player of the same file then waits
+    // forever. Local files need no cache.
+    'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     'content-security-policy': SANDBOX_CSP,
     'cross-origin-resource-policy': 'cross-origin',
     ...extra,
   }
-  const range = parseRange(header(req.headers, 'range'), size)
+  const asked = header(req.headers, 'range')
+  const range = parseRange(asked, size)
+  if (range && !range.unsatisfiable && chunk !== undefined && /^bytes=\s*\d*-\s*$/i.test(asked ?? '')) {
+    range.end = Math.min(range.end, range.start + chunk - 1)
+  }
   if (range?.unsatisfiable) {
     res.writeHead(416, { ...base, 'content-range': `bytes */${size}` })
     res.end()
@@ -342,7 +373,7 @@ async function listMedia(root, recursive) {
 // ── plugin body ─────────────────────────────────────────────────────────────
 
 export function apply(ctx) {
-  const trustedHosts = () => ctx.webRuntime.trustedHosts
+  const trustedHosts = () => trustedHostsOf(ctx)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
@@ -381,7 +412,8 @@ export function apply(ctx) {
             res.end()
             return
           }
-          serveFile(req, res, real, info.size, type, extra)
+          const playback = url.searchParams.get('download') !== '1' && /^(video|audio)\//.test(type)
+          serveFile(req, res, real, info.size, type, extra, playback ? MEDIA_CHUNK_BYTES : undefined)
           return
         }
 

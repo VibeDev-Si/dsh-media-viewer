@@ -1,7 +1,7 @@
 {
   "name": "@vibedev-si/dsh-media-viewer",
-  "version": "0.1.4",
-  "description": "右侧栏媒体预览：直接预览视频、音频和 HTML（大文件可拖进度条，HTML 默认允许脚本），并提供文件夹媒体画廊，需配合 dsh-better-sidebar · Inline video, audio and HTML preview plus a folder media gallery in the dsh-better-sidebar right column — range-streamed large files, sandboxed HTML with working relative assets",
+  "version": "0.2.0",
+  "description": "右侧栏媒体预览：直接预览视频、音频和 HTML（大文件可拖进度条，HTML 默认允许脚本），文件夹媒体画廊（多选后加入影视工作台画布）；用 DSH 自带的右侧栏，装了 dsh-better-sidebar 时也在其中可用 · Inline video, audio and HTML preview plus a folder media gallery in the host's own right sidebar (and inside dsh-better-sidebar when installed) — range-streamed large files, sandboxed HTML with working relative assets",
   "type": "module",
   "main": "index.js",
   "icon": "./icon.svg",
@@ -26,14 +26,14 @@
     "dsh-plugin",
     "deepseek-harness",
     "vibedev",
-    "dsh-better-sidebar",
-    "better-sidebar",
+    "right-sidebar",
     "video",
     "audio",
     "html",
     "preview",
     "gallery",
-    "file-viewer"
+    "file-viewer",
+    "dsh-better-sidebar"
   ],
   "author": "CrisLIUning",
   "license": "MIT",
@@ -53,7 +53,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "node test/route.test.mjs && node test/tokens.test.mjs && node test/add-to-canvas.test.mjs"
+    "test": "node test/route.test.mjs && node test/tokens.test.mjs && node test/add-to-canvas.test.mjs && node test/host-surface.test.mjs"
   },
   "peerDependencies": {
     "dsh-better-sidebar": ">=0.24.0"
@@ -64,9 +64,16 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime"
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
       ],
       "platform": "web"
+    }
+  },
+  "peerDependenciesMeta": {
+    "dsh-better-sidebar": {
+      "optional": true
     }
   }
 }
